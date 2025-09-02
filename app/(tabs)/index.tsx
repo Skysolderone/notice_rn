@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as Notifications from 'expo-notifications';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, FlatList, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, AppState, FlatList, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 
 // 配置通知处理
 Notifications.setNotificationHandler({
@@ -34,6 +34,7 @@ function FCMPushScreen() {
   const [lastTokenSentTime, setLastTokenSentTime] = useState<number>(0);
   const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
   const responseListener = useRef<Notifications.Subscription | undefined>(undefined);
+  const appState = useRef(AppState.currentState);
   
   const STORAGE_KEY = 'FCM_MESSAGES';
   const ONE_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
@@ -254,12 +255,13 @@ function FCMPushScreen() {
     });
   }, [ONE_MONTH_MS, addLog, saveMessages]);
 
-  // 检查启动时的通知（处理冷启动场景）
+  // 检查启动时的通知和未处理通知（处理冷启动场景）
   const checkStartupNotification = useCallback(async () => {
     try {
       addLog('检查启动时是否有通知');
-      const lastNotificationResponse = await Notifications.getLastNotificationResponseAsync();
       
+      // 1. 检查用户最后点击的通知
+      const lastNotificationResponse = await Notifications.getLastNotificationResponseAsync();
       if (lastNotificationResponse) {
         const { title, body } = lastNotificationResponse.notification.request.content;
         addLog(`发现启动通知: ${title} - ${body}`);
@@ -267,24 +269,113 @@ function FCMPushScreen() {
         // 保存启动时的通知
         const msg: MessageItem = {
           text: body || title || '空消息',
-          timestamp: new Date().toISOString(),
+          timestamp: new Date(lastNotificationResponse.notification.date).toISOString(),
         };
         
         setMessages((prev) => {
-          const newMsgs = [msg, ...prev].filter(m => 
-            Date.now() - new Date(m.timestamp).getTime() < ONE_MONTH_MS
+          // 检查是否已存在相同的消息（避免重复保存）
+          const isDuplicate = prev.some(m => 
+            m.text === msg.text && 
+            Math.abs(new Date(m.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 5000
           );
-          saveMessages(newMsgs);
-          addLog(`已保存启动时的通知消息`);
-          return newMsgs;
+          
+          if (!isDuplicate) {
+            const newMsgs = [msg, ...prev].filter(m => 
+              Date.now() - new Date(m.timestamp).getTime() < ONE_MONTH_MS
+            );
+            saveMessages(newMsgs);
+            addLog(`已保存启动时的通知消息`);
+            return newMsgs;
+          } else {
+            addLog(`启动通知已存在，跳过保存`);
+            return prev;
+          }
         });
-      } else {
-        addLog('启动时无通知');
       }
+      
+      // 2. 检查所有未处理的通知（这里我们可以通过服务端API获取未读通知）
+      await checkMissedNotifications();
+      
     } catch (error) {
       addLog(`检查启动通知失败: ${error}`);
     }
-  }, [ONE_MONTH_MS, addLog, saveMessages]);
+  }, [ONE_MONTH_MS, addLog, saveMessages, checkMissedNotifications]);
+
+  // 检查服务端未读通知的函数
+  const checkMissedNotifications = useCallback(async () => {
+    try {
+      if (!pushToken) {
+        addLog('Push token不存在，跳过检查未读通知');
+        return;
+      }
+      
+      addLog('检查服务端未读通知');
+      
+      // 获取上次检查时间
+      const lastCheckKey = 'LAST_NOTIFICATION_CHECK';
+      const lastCheckStr = await AsyncStorage.getItem(lastCheckKey);
+      const lastCheck = lastCheckStr ? parseInt(lastCheckStr) : Date.now() - 24 * 60 * 60 * 1000; // 默认检查24小时内
+      
+      const formData = new FormData();
+      formData.append('token', pushToken);
+      formData.append('since', lastCheck.toString());
+      
+      const response = await fetch('https://wws741.top/get_missed_notifications', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (response.ok) {
+        const missedNotifications = await response.json();
+        addLog(`找到 ${missedNotifications.length} 条未读通知`);
+        
+        if (missedNotifications.length > 0) {
+          const newMessages: MessageItem[] = missedNotifications.map((notif: any) => ({
+            text: notif.body || notif.title || '空消息',
+            timestamp: new Date(notif.timestamp).toISOString(),
+          }));
+          
+          setMessages((prev) => {
+            // 合并新消息，去重并按时间排序
+            const allMessages = [...newMessages, ...prev];
+            const uniqueMessages = allMessages.filter((msg, index, arr) => 
+              arr.findIndex(m => 
+                m.text === msg.text && 
+                Math.abs(new Date(m.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 5000
+              ) === index
+            ).filter(m => 
+              Date.now() - new Date(m.timestamp).getTime() < ONE_MONTH_MS
+            ).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+            
+            saveMessages(uniqueMessages);
+            addLog(`已保存 ${newMessages.length} 条未读通知`);
+            return uniqueMessages;
+          });
+        }
+        
+        // 更新最后检查时间
+        await AsyncStorage.setItem(lastCheckKey, Date.now().toString());
+        
+      } else {
+        addLog(`检查未读通知失败: HTTP ${response.status}`);
+      }
+    } catch (error) {
+      addLog(`检查未读通知异常: ${error}`);
+    }
+  }, [pushToken, addLog, saveMessages, ONE_MONTH_MS]);
+
+  // 应用状态变化处理
+  const handleAppStateChange = useCallback((nextAppState: string) => {
+    addLog(`应用状态变化: ${appState.current} -> ${nextAppState}`);
+    
+    if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+      addLog('应用从后台恢复，检查未读通知');
+      // 应用从后台恢复到前台时检查未读通知
+      checkMissedNotifications();
+    }
+    
+    appState.current = nextAppState;
+  }, [addLog, checkMissedNotifications]);
 
   // 主初始化Effect
   useEffect(() => {
@@ -302,6 +393,9 @@ function FCMPushScreen() {
     // 设置用户响应监听器
     responseListener.current = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
     
+    // 设置应用状态监听器
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    
     return () => {
       addLog('组件卸载，清理FCM推送监听器');
       if (notificationListener.current) {
@@ -310,8 +404,9 @@ function FCMPushScreen() {
       if (responseListener.current) {
         responseListener.current.remove();
       }
+      subscription?.remove();
     };
-  }, [initializeFCM, handlePushNotification, handleNotificationResponse, addLog, checkStartupNotification]);
+  }, [initializeFCM, handlePushNotification, handleNotificationResponse, addLog, checkStartupNotification, handleAppStateChange]);
 
   // 测试本地推送
   const handleTestLocalPush = useCallback(async () => {
@@ -522,6 +617,19 @@ function FCMPushScreen() {
                     disabled={!pushToken}
                   >
                     <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>强制发送</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => checkMissedNotifications()}
+                    activeOpacity={0.7}
+                    style={{
+                      backgroundColor: '#2196F3',
+                      paddingVertical: 7,
+                      paddingHorizontal: 12,
+                      borderRadius: 16,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>检查未读</Text>
                   </TouchableOpacity>
                   {debugEnabled && (
                     <TouchableOpacity
