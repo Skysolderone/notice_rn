@@ -2,7 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as Notifications from 'expo-notifications';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, AppState, FlatList, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, AppState, FlatList, ScrollView, Text, TouchableOpacity, View, Dimensions } from 'react-native';
+import { WebView } from 'react-native-webview';
 
 // 配置通知处理
 Notifications.setNotificationHandler({
@@ -459,6 +460,110 @@ function FCMPushScreen() {
     return d.toLocaleString();
   };
 
+  // 检测内容是否包含HTML标签
+  const isHtmlContent = (text: string) => {
+    const htmlTagRegex = /<[^>]+>/;
+    return htmlTagRegex.test(text);
+  };
+
+  // 生成HTML页面内容
+  const generateHtmlPage = (content: string) => {
+    return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+      <style>
+        body {
+          margin: 0;
+          padding: 16px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+          font-size: 16px;
+          line-height: 1.6;
+          color: #222;
+          background-color: #fff;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+        }
+        * {
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+        img {
+          height: auto;
+          border-radius: 8px;
+          margin: 8px 0;
+        }
+        pre {
+          background: #f5f5f5;
+          padding: 12px;
+          border-radius: 6px;
+          overflow-x: auto;
+          font-size: 14px;
+        }
+        code {
+          background: #f5f5f5;
+          padding: 2px 4px;
+          border-radius: 3px;
+          font-size: 14px;
+        }
+        blockquote {
+          border-left: 4px solid #007AFF;
+          margin: 16px 0;
+          padding-left: 16px;
+          color: #666;
+        }
+        table {
+          border-collapse: collapse;
+          width: 100%;
+          margin: 16px 0;
+        }
+        th, td {
+          border: 1px solid #ddd;
+          padding: 8px;
+          text-align: left;
+        }
+        th {
+          background-color: #f5f5f5;
+        }
+        a {
+          color: #007AFF;
+          text-decoration: none;
+        }
+        a:hover {
+          text-decoration: underline;
+        }
+        h1, h2, h3, h4, h5, h6 {
+          margin-top: 20px;
+          margin-bottom: 10px;
+        }
+        ul, ol {
+          margin: 12px 0;
+          padding-left: 24px;
+        }
+        li {
+          margin: 4px 0;
+        }
+      </style>
+    </head>
+    <body>
+      ${content}
+    </body>
+    </html>
+    `;
+  };
+
+  // 提取HTML内容的纯文本预览（用于列表显示）
+  const getTextPreview = (htmlContent: string, maxLength: number = 100) => {
+    // 简单地移除HTML标签，获取纯文本
+    const textOnly = htmlContent.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    if (textOnly.length <= maxLength) {
+      return textOnly;
+    }
+    return textOnly.substring(0, maxLength) + '...';
+  };
+
   return (
     <View style={{ flex: 1, padding: 0, backgroundColor: '#f7f8fa' }}>
       {/* 调试按钮 - 右上角固定位置 */}
@@ -751,9 +856,22 @@ function FCMPushScreen() {
                     <Text style={{ fontSize: 12, color: '#666' }}>点击切换选择</Text>
                   </View>
                 )}
-                <Text style={{ fontSize: 16, color: '#222', marginBottom: 8 }} numberOfLines={3} ellipsizeMode="tail">
-                  {item.text}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                  {isHtmlContent(item.text) && (
+                    <View style={{
+                      backgroundColor: '#007AFF',
+                      paddingHorizontal: 6,
+                      paddingVertical: 2,
+                      borderRadius: 10,
+                      marginRight: 8,
+                    }}>
+                      <Text style={{ fontSize: 10, color: '#fff', fontWeight: 'bold' }}>HTML</Text>
+                    </View>
+                  )}
+                  <Text style={{ fontSize: 16, color: '#222', flex: 1 }} numberOfLines={3} ellipsizeMode="tail">
+                    {isHtmlContent(item.text) ? getTextPreview(item.text, 80) : item.text}
+                  </Text>
+                </View>
                 <Text style={{ fontSize: 12, color: '#888', textAlign: 'right' }}>{formatTime(item.timestamp)}</Text>
               </View>
             </TouchableOpacity>
@@ -814,7 +932,22 @@ function FCMPushScreen() {
               <Text style={{ fontSize: 12, color: '#888', marginBottom: 12, textAlign: 'right' }}>
                 {formatTime(selectedMessage.timestamp)}
               </Text>
-              <Text style={{ fontSize: 16, color: '#222', lineHeight: 22 }}>{selectedMessage.text}</Text>
+              {isHtmlContent(selectedMessage.text) ? (
+                <WebView
+                  source={{ html: generateHtmlPage(selectedMessage.text) }}
+                  style={{ flex: 1, minHeight: 200 }}
+                  showsVerticalScrollIndicator={false}
+                  showsHorizontalScrollIndicator={false}
+                  bounces={false}
+                  scrollEnabled={true}
+                  scalesPageToFit={false}
+                  startInLoadingState={true}
+                  javaScriptEnabled={true}
+                  domStorageEnabled={true}
+                />
+              ) : (
+                <Text style={{ fontSize: 16, color: '#222', lineHeight: 22 }}>{selectedMessage.text}</Text>
+              )}
             </View>
           </View>
         </View>
