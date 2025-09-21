@@ -2,7 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as Notifications from 'expo-notifications';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, AppState, FlatList, ScrollView, Text, TouchableOpacity, View, Dimensions } from 'react-native';
+import { Alert, AppState, FlatList, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 // 配置通知处理
@@ -142,10 +143,20 @@ function FCMPushScreen() {
         const stored = await AsyncStorage.getItem(STORAGE_KEY);
         if (stored) {
           const arr: MessageItem[] = JSON.parse(stored);
-          // 只保留一个月内的消息
+          // 只保留一个月内的消息，并过滤掉空消息
           const now = Date.now();
-          const filtered = arr.filter(m => now - new Date(m.timestamp).getTime() < ONE_MONTH_MS);
+          const filtered = arr.filter(m => 
+            now - new Date(m.timestamp).getTime() < ONE_MONTH_MS && 
+            m.text && 
+            m.text.trim() !== '' && 
+            m.text.trim() !== '空消息'
+          );
           setMessages(filtered);
+          // 如果过滤后的消息数量发生变化，重新保存到本地存储
+          if (filtered.length !== arr.length) {
+            saveMessages(filtered);
+            addLog(`清理了 ${arr.length - filtered.length} 条空消息`);
+          }
           addLog(`加载了 ${filtered.length} 条历史消息`);
         }
       } catch (error) {
@@ -157,10 +168,11 @@ function FCMPushScreen() {
   // 保存消息到本地
   const saveMessages = useCallback(async (msgs: MessageItem[]) => {
     try {
+      addLog(`[saveMessages] 开始保存消息到本地存储，消息数量: ${msgs.length}`);
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(msgs));
-      addLog(`消息已保存到本地存储，共${msgs.length}条`);
+      addLog(`[saveMessages] 消息已成功保存到本地存储，共${msgs.length}条`);
     } catch (error) {
-      addLog(`保存消息到本地存储失败: ${error}`);
+      addLog(`[saveMessages] 保存消息到本地存储失败: ${error}`);
     }
   }, [addLog]);
 
@@ -214,93 +226,75 @@ function FCMPushScreen() {
 
   // 处理接收到的推送消息
   const handlePushNotification = useCallback((notification: Notifications.Notification) => {
-    const { title, body } = notification.request.content;
-    addLog(`收到推送通知: ${title} - ${body}`);
-    
-    // 创建消息项
-    const msg: MessageItem = {
-      text: body || title || '空消息',
-      timestamp: new Date().toISOString(),
-    };
-    
-    // 添加到消息列表
-    setMessages((prev) => {
-      const newMsgs = [msg, ...prev].filter(m => 
-        Date.now() - new Date(m.timestamp).getTime() < ONE_MONTH_MS
-      );
-      saveMessages(newMsgs);
-      return newMsgs;
-    });
-    
-    addLog(`已添加消息到列表`);
-  }, [ONE_MONTH_MS, addLog]);
+    try {
+      addLog(`[handlePushNotification] 开始处理推送通知`);
+      const { title, body } = notification.request.content;
+      addLog(`[handlePushNotification] 收到推送通知: title="${title}", body="${body}"`);
+      
+      // 检查消息内容是否为空
+      const messageText = body || title || '';
+      addLog(`[handlePushNotification] 处理的消息文本: "${messageText}"`);
+      
+      if (!messageText.trim()) {
+        addLog('[handlePushNotification] 收到空推送通知，已忽略');
+        return;
+      }
+      
+      // 创建消息项
+      const msg: MessageItem = {
+        text: messageText.trim(),
+        timestamp: new Date().toISOString(),
+      };
+      addLog(`[handlePushNotification] 创建消息项: ${JSON.stringify(msg)}`);
+      
+      // 添加到消息列表
+      setMessages((prev) => {
+        addLog(`[handlePushNotification] 当前消息列表长度: ${prev.length}`);
+        
+        // 检查是否已存在相同的消息（避免重复保存）
+        const isDuplicate = prev.some(m => 
+          m.text === msg.text && 
+          Math.abs(new Date(m.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 10000
+        );
+        
+        if (isDuplicate) {
+          addLog('[handlePushNotification] 发现重复消息，跳过保存');
+          return prev;
+        }
+        
+        const newMsgs = [msg, ...prev].filter(m => 
+          Date.now() - new Date(m.timestamp).getTime() < ONE_MONTH_MS
+        );
+        addLog(`[handlePushNotification] 新消息列表长度: ${newMsgs.length}`);
+        saveMessages(newMsgs);
+        addLog(`[handlePushNotification] 已调用saveMessages`);
+        return newMsgs;
+      });
+      
+      addLog(`[handlePushNotification] 消息处理完成`);
+    } catch (error) {
+      addLog(`[handlePushNotification] 处理推送通知时出错: ${error}`);
+    }
+  }, [ONE_MONTH_MS, addLog, saveMessages]);
   
   // 处理用户点击推送通知
   const handleNotificationResponse = useCallback((response: Notifications.NotificationResponse) => {
     const { title, body } = response.notification.request.content;
     addLog(`用户点击了推送通知: ${title} - ${body}`);
     
-    // 保存点击的通知消息
-    const msg: MessageItem = {
-      text: body || title || '空消息',
-      timestamp: new Date().toISOString(),
-    };
-    
-    setMessages((prev) => {
-      const newMsgs = [msg, ...prev].filter(m => 
-        Date.now() - new Date(m.timestamp).getTime() < ONE_MONTH_MS
-      );
-      saveMessages(newMsgs);
-      addLog(`已保存点击的通知消息`);
-      return newMsgs;
-    });
-  }, [ONE_MONTH_MS, addLog, saveMessages]);
-
-  // 检查启动时的通知和未处理通知（处理冷启动场景）
-  const checkStartupNotification = useCallback(async () => {
-    try {
-      addLog('检查启动时是否有通知');
-      
-      // 1. 检查用户最后点击的通知
-      const lastNotificationResponse = await Notifications.getLastNotificationResponseAsync();
-      if (lastNotificationResponse) {
-        const { title, body } = lastNotificationResponse.notification.request.content;
-        addLog(`发现启动通知: ${title} - ${body}`);
-        
-        // 保存启动时的通知
-        const msg: MessageItem = {
-          text: body || title || '空消息',
-          timestamp: new Date(lastNotificationResponse.notification.date).toISOString(),
-        };
-        
-        setMessages((prev) => {
-          // 检查是否已存在相同的消息（避免重复保存）
-          const isDuplicate = prev.some(m => 
-            m.text === msg.text && 
-            Math.abs(new Date(m.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 5000
-          );
-          
-          if (!isDuplicate) {
-            const newMsgs = [msg, ...prev].filter(m => 
-              Date.now() - new Date(m.timestamp).getTime() < ONE_MONTH_MS
-            );
-            saveMessages(newMsgs);
-            addLog(`已保存启动时的通知消息`);
-            return newMsgs;
-          } else {
-            addLog(`启动通知已存在，跳过保存`);
-            return prev;
-          }
-        });
-      }
-      
-      // 2. 检查所有未处理的通知（这里我们可以通过服务端API获取未读通知）
-      await checkMissedNotifications();
-      
-    } catch (error) {
-      addLog(`检查启动通知失败: ${error}`);
+    // 检查消息内容是否为空
+    const messageText = body || title;
+    if (!messageText || !messageText.trim()) {
+      addLog('点击的推送通知内容为空，已忽略');
+      return;
     }
-  }, [ONE_MONTH_MS, addLog, saveMessages, checkMissedNotifications]);
+    
+    // 只记录点击事件，不重复保存消息（消息已在handlePushNotification中保存）
+    addLog(`处理用户点击通知事件，消息内容: ${messageText.trim()}`);
+    
+    // 这里可以添加其他点击处理逻辑，比如导航到特定页面等
+    // 但不需要重复保存消息到列表中
+  }, [addLog]);
 
   // 检查服务端未读通知的函数
   const checkMissedNotifications = useCallback(async () => {
@@ -365,8 +359,63 @@ function FCMPushScreen() {
     }
   }, [pushToken, addLog, saveMessages, ONE_MONTH_MS]);
 
+  // 检查启动时的通知和未处理通知（处理冷启动场景）
+  const checkStartupNotification = useCallback(async () => {
+    try {
+      addLog('检查启动时是否有通知');
+      
+      // 1. 检查用户最后点击的通知
+      const lastNotificationResponse = await Notifications.getLastNotificationResponseAsync();
+      if (lastNotificationResponse) {
+        const { title, body } = lastNotificationResponse.notification.request.content;
+        addLog(`发现启动通知: ${title} - ${body}`);
+        
+        // 检查消息内容是否为空
+        const messageText = body || title;
+        if (!messageText || !messageText.trim()) {
+          addLog('启动时的推送通知内容为空，已忽略');
+          return;
+        }
+        
+        // 保存启动时的通知
+        const msg: MessageItem = {
+
+          text: messageText.trim(),
+          timestamp: new Date().toISOString(),
+
+        };
+        
+        setMessages((prev) => {
+          // 检查是否已存在相同的消息（避免重复保存）
+          const isDuplicate = prev.some(m => 
+            m.text === msg.text && 
+            Math.abs(new Date(m.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 5000
+          );
+          
+          if (!isDuplicate) {
+            const newMsgs = [msg, ...prev].filter(m => 
+              Date.now() - new Date(m.timestamp).getTime() < ONE_MONTH_MS
+            );
+            saveMessages(newMsgs);
+            addLog(`已保存启动时的通知消息`);
+            return newMsgs;
+          } else {
+            addLog(`启动通知已存在，跳过保存`);
+            return prev;
+          }
+        });
+      }
+      
+      // 2. 检查所有未处理的通知（这里我们可以通过服务端API获取未读通知）
+      await checkMissedNotifications();
+      
+    } catch (error) {
+      addLog(`检查启动通知失败: ${error}`);
+    }
+  }, [ONE_MONTH_MS, addLog, saveMessages, checkMissedNotifications]);
+
   // 应用状态变化处理
-  const handleAppStateChange = useCallback((nextAppState: string) => {
+  const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
     addLog(`应用状态变化: ${appState.current} -> ${nextAppState}`);
     
     if (appState.current.match(/inactive|background/) && nextAppState === 'active') {

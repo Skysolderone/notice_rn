@@ -1,0 +1,29 @@
+{
+    "project_info": {
+      "project_number": "405105687668",
+      "project_id": "zero-notice",
+      "storage_bucket": "zero-notice.firebasestorage.app"
+    },
+    "client": [
+      {
+        "client_info": {
+          "mobilesdk_app_id": "1:405105687668:android:d7066227166f9207a36521",
+          "android_client_info": {
+            "package_name": "com.assholes.zero_notive"
+          }
+        },
+        "oauth_client": [],
+        "api_key": [
+          {
+            "current_key": "AIzaSyBxDlDSVW7xhQRKvFX5c3VqIO7M-4Y4oQU"
+          }
+        ],
+        "services": {
+          "appinvite_service": {
+            "other_platform_oauth_client": []
+          }
+        }
+      }
+    ],
+    "configuration_version": "1"
+  }
