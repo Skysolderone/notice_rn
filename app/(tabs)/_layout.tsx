@@ -12,20 +12,26 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarStyle: { display: 'none' }, // 隐藏TabBar
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
-       
+        tabBarActiveTintColor: colorScheme === 'dark' ? '#fff' : '#007AFF',
+        tabBarInactiveTintColor: colorScheme === 'dark' ? '#666' : '#999',
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'notice',
+          title: '原版',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
         }}
       />
-    
+      <Tabs.Screen
+        name="messages"
+        options={{
+          title: '新版消息',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="envelope.fill" color={color} />,
+        }}
+      />
     </Tabs>
   );
 }
