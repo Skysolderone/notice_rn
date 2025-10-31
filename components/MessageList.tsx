@@ -23,17 +23,17 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, onPress }) => {
   const getSourceColor = (source: string) => {
     switch (source) {
       case 'rsi':
-        return '#FFB800';
+        return '#FF9500'; // 活力橙
       case 'liquidation':
-        return '#FF4444';
+        return '#FF3B30'; // 鲜红色
       case 'news':
-        return '#4A90E2';
+        return '#007AFF'; // iOS蓝
       case 'manual':
-        return '#7ED321';
+        return '#34C759'; // 翠绿色
       case 'webhook':
-        return '#9013FE';
+        return '#AF52DE'; // 紫色
       default:
-        return '#666666';
+        return '#8E8E93'; // 中性灰
     }
   };
 
@@ -261,89 +261,118 @@ export const MessageList: React.FC<MessageListProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 16,
   },
   loadingText: {
-    marginTop: 12,
     fontSize: 16,
+    opacity: 0.7,
+    fontWeight: '500',
   },
   header: {
-    padding: 20,
-    paddingBottom: 10,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 16,
   },
   headerTitle: {
-    marginBottom: 4,
+    fontSize: 32,
+    fontWeight: '700',
+    marginBottom: 6,
+    letterSpacing: -0.5,
   },
   headerSubtitle: {
-    opacity: 0.7,
-    fontSize: 14,
+    opacity: 0.65,
+    fontSize: 15,
+    fontWeight: '500',
+    letterSpacing: 0.2,
   },
   messageItem: {
     marginHorizontal: 16,
-    marginVertical: 6,
-    borderRadius: 12,
+    marginVertical: 8,
+    borderRadius: 16,
     overflow: 'hidden',
-    elevation: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
   },
   messageContent: {
-    padding: 16,
+    padding: 18,
   },
   messageHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   sourceBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
   },
   sourceText: {
     color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
   },
   timestamp: {
-    fontSize: 12,
-    opacity: 0.6,
+    fontSize: 13,
+    opacity: 0.5,
+    fontWeight: '500',
   },
   messageText: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '400',
+    letterSpacing: 0.1,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    padding: 48,
+    gap: 20,
   },
   emptyContent: {
     flexGrow: 1,
   },
   emptyText: {
-    fontSize: 16,
+    fontSize: 17,
     textAlign: 'center',
-    opacity: 0.6,
-    marginBottom: 16,
+    opacity: 0.5,
+    fontWeight: '500',
+    letterSpacing: 0.2,
   },
   retryButton: {
     backgroundColor: '#007AFF',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 12,
+    shadowColor: '#007AFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   retryText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
 });
